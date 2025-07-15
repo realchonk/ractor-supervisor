@@ -351,7 +351,7 @@ impl DynamicSupervisor {
         myself: ActorRef<DynamicSupervisorMsg>,
     ) {
         if let Some(child) = state.active_children.remove(child_id) {
-            log::trace!("stopping child {child:?}");
+            log::trace!("stopping child {:?}", child.cell);
             child.cell.unlink(myself.get_cell());
             if child
                 .cell
@@ -359,7 +359,7 @@ impl DynamicSupervisor {
                 .await
                 .is_err()
             {
-                log::warn!("failed to stop child {child:?}, killing...");
+                log::warn!("failed to stop child {:?}, killing...", child.cell);
                 child.cell.kill();
             }
         }
