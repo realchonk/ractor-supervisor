@@ -1,3 +1,5 @@
+use futures_util::stream::iter;
+use futures_util::StreamExt;
 use ractor::concurrency::{sleep, Duration, Instant, JoinHandle};
 use ractor::{
     call, Actor, ActorCell, ActorName, ActorProcessingErr, ActorRef, RpcReplyPort, SpawnErr,
@@ -195,14 +197,39 @@ impl Actor for DynamicSupervisor {
     /// For meltdown stops, we skip this, but we still store final state for testing.
     async fn post_stop(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("stopped.");
+        log::trace!("stopping...");
         #[cfg(test)]
         {
             store_final_state(_myself, _state).await;
         }
+
+        // Stop or kill all children.
+        iter(&myself.get_children())
+            .for_each_concurrent(None, |cell| {
+                let myself = myself.clone();
+                async move {
+                    log::debug!("stopping child {cell:?}");
+
+                    // Must unlink to prevent confusion with them receiving further messages.
+                    cell.unlink(myself.get_cell());
+
+                    // Allow the children to gracefully exit, murder them if they don't comply.
+                    if cell
+                        .stop_and_wait(None, Some(Duration::from_millis(100)))
+                        .await
+                        .is_err()
+                    {
+                        log::warn!("failed to stop child {cell:?}, killing...");
+                        cell.kill();
+                    }
+                }
+            })
+            .await;
+
+        log::trace!("stopped.");
         Ok(())
     }
 }
@@ -324,8 +351,17 @@ impl DynamicSupervisor {
         myself: ActorRef<DynamicSupervisorMsg>,
     ) {
         if let Some(child) = state.active_children.remove(child_id) {
+            log::trace!("stopping child {child:?}");
             child.cell.unlink(myself.get_cell());
-            child.cell.kill();
+            if child
+                .cell
+                .stop_and_wait(None, Some(Duration::from_millis(100)))
+                .await
+                .is_err()
+            {
+                log::warn!("failed to stop child {child:?}, killing...");
+                child.cell.kill();
+            }
         }
     }
 

@@ -237,6 +237,7 @@ impl SupervisorState {
         // A short delay to allow the old children to fully unregister (avoid name collisions).
         sleep(Duration::from_millis(10)).await;
         self.spawn_all_children(myself).await?;
+        log::trace!("stopped all children.");
         Ok(())
     }
 
