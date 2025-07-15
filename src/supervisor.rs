@@ -2,7 +2,7 @@ use crate::core::{
     ChildFailureState, ChildSpec, CoreSupervisorOptions, RestartLog, SupervisorCore,
     SupervisorError,
 };
-use crate::ExitReason;
+use crate::{ExitReason, GRACEFUL_STOP_TIME};
 use futures_util::{stream::iter, StreamExt};
 use ractor::concurrency::{sleep, Duration, JoinHandle};
 use ractor::{
@@ -223,7 +223,7 @@ impl SupervisorState {
 
                     // Allow the children to gracefully exit, murder them if they don't comply.
                     if cell
-                        .stop_and_wait(None, Some(Duration::from_millis(100)))
+                        .stop_and_wait(None, Some(GRACEFUL_STOP_TIME))
                         .await
                         .is_err()
                     {
@@ -382,7 +382,7 @@ impl Actor for Supervisor {
         evt: SupervisionEvent,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("received supervisor event: {evt:?}");
+        log::trace!("{evt:?}");
         match evt {
             SupervisionEvent::ActorStarted(cell) => {
                 let child_id = cell

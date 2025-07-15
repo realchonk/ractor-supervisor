@@ -220,6 +220,9 @@
 //! - [`DynamicSupervisor`] for dynamic child management
 //! - [`TaskSupervisor`] for supervised async tasks
 //!
+
+const GRACEFUL_STOP_TIME: Duration = Duration::from_millis(500);
+
 pub mod core;
 pub mod dynamic;
 pub mod supervisor;
@@ -227,5 +230,6 @@ pub mod task;
 
 pub use core::*;
 pub use dynamic::*;
+use std::time::Duration;
 pub use supervisor::*;
 pub use task::*;

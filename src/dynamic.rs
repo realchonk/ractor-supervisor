@@ -11,7 +11,7 @@ use crate::core::{
     ChildFailureState, ChildSpec, CoreSupervisorOptions, RestartLog, SupervisorCore,
     SupervisorError,
 };
-use crate::ExitReason;
+use crate::{ExitReason, GRACEFUL_STOP_TIME};
 
 #[derive(Debug, Clone)]
 pub struct DynamicSupervisorOptions {
@@ -164,7 +164,7 @@ impl Actor for DynamicSupervisor {
         evt: SupervisionEvent,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("received supervisor event: {evt:?}");
+        log::trace!("{evt:?}");
         match evt {
             SupervisionEvent::ActorStarted(cell) => {
                 let child_id = cell
@@ -218,7 +218,7 @@ impl Actor for DynamicSupervisor {
 
                     // Allow the children to gracefully exit, murder them if they don't comply.
                     if cell
-                        .stop_and_wait(None, Some(Duration::from_millis(100)))
+                        .stop_and_wait(None, Some(GRACEFUL_STOP_TIME))
                         .await
                         .is_err()
                     {
@@ -355,7 +355,7 @@ impl DynamicSupervisor {
             child.cell.unlink(myself.get_cell());
             if child
                 .cell
-                .stop_and_wait(None, Some(Duration::from_millis(100)))
+                .stop_and_wait(None, Some(GRACEFUL_STOP_TIME))
                 .await
                 .is_err()
             {
