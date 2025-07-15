@@ -3,6 +3,7 @@ use crate::core::{
     SupervisorError,
 };
 use crate::ExitReason;
+use futures_util::{stream::iter, StreamExt};
 use ractor::concurrency::{sleep, Duration, JoinHandle};
 use ractor::{
     Actor, ActorCell, ActorName, ActorProcessingErr, ActorRef, RpcReplyPort, SpawnErr,
@@ -209,11 +210,27 @@ impl SupervisorState {
         myself: ActorRef<SupervisorMsg>,
     ) -> Result<(), ActorProcessingErr> {
         self.track_global_restart(child_id)?;
-        // Kill all children. Must unlink to prevent confusion with them receiving further messages.
-        for cell in myself.get_children() {
-            cell.unlink(myself.get_cell());
-            cell.kill();
-        }
+        // Stop or kill all children.
+        iter(&myself.get_children())
+            .for_each_concurrent(None, |cell| {
+                let myself = myself.clone();
+                async move {
+                    // Must unlink to prevent confusion with them receiving further messages.
+                    cell.unlink(myself.get_cell());
+
+                    // Allow the children to gracefully exit, murder them if they don't comply.
+                    if cell
+                        .stop_and_wait(None, Some(Duration::from_millis(100)))
+                        .await
+                        .is_err()
+                    {
+                        log::warn!("failed to stop child {cell:?}, killing...");
+                        cell.kill();
+                    }
+                }
+            })
+            .await;
+
         // A short delay to allow the old children to fully unregister (avoid name collisions).
         sleep(Duration::from_millis(10)).await;
         self.spawn_all_children(myself).await?;
