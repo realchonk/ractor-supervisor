@@ -104,6 +104,7 @@ impl Actor for DynamicSupervisor {
         _myself: ActorRef<Self::Msg>,
         options: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        log::trace!("starting...");
         Ok(DynamicSupervisorState {
             child_failure_state: HashMap::new(),
             restart_log: Vec::new(),
@@ -120,6 +121,7 @@ impl Actor for DynamicSupervisor {
     ) -> Result<(), ActorProcessingErr> {
         let res = match msg {
             DynamicSupervisorMsg::SpawnChild { spec, reply } => {
+                log::trace!("received message: SpawnChild({spec:?}, ...)");
                 let mut res = self
                     .handle_spawn_child(&spec, reply.is_some(), state, myself.clone())
                     .await;
@@ -131,6 +133,7 @@ impl Actor for DynamicSupervisor {
                 res
             }
             DynamicSupervisorMsg::TerminateChild { child_id, reply } => {
+                log::trace!("received message: TerminateChild({child_id:?}, ...)");
                 self.handle_terminate_child(&child_id, state, myself.clone())
                     .await;
                 if let Some(reply) = reply {
@@ -139,6 +142,7 @@ impl Actor for DynamicSupervisor {
                 Ok(())
             }
             DynamicSupervisorMsg::InspectState(reply) => {
+                log::trace!("received message: InspectState(...)");
                 reply.send(state.clone())?;
                 Ok(())
             }
@@ -158,6 +162,7 @@ impl Actor for DynamicSupervisor {
         evt: SupervisionEvent,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        log::trace!("received supervisor event: {evt:?}");
         match evt {
             SupervisionEvent::ActorStarted(cell) => {
                 let child_id = cell
@@ -193,6 +198,7 @@ impl Actor for DynamicSupervisor {
         _myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        log::trace!("stopped.");
         #[cfg(test)]
         {
             store_final_state(_myself, _state).await;
