@@ -13,6 +13,8 @@ use crate::core::{
 };
 use crate::{ExitReason, GRACEFUL_STOP_TIME};
 
+actor_log!(= "DynamicSupervisor");
+
 #[derive(Debug, Clone)]
 pub struct DynamicSupervisorOptions {
     pub max_children: Option<usize>,
@@ -103,10 +105,10 @@ impl Actor for DynamicSupervisor {
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         options: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::trace!("starting...");
+        actor_log!(myself, trace, "starting...");
         Ok(DynamicSupervisorState {
             child_failure_state: HashMap::new(),
             restart_log: Vec::new(),
@@ -123,7 +125,7 @@ impl Actor for DynamicSupervisor {
     ) -> Result<(), ActorProcessingErr> {
         let res = match msg {
             DynamicSupervisorMsg::SpawnChild { spec, reply } => {
-                log::trace!("received message: SpawnChild({spec:?}, ...)");
+                actor_log!(myself, trace, "received message: SpawnChild({spec:?}, ...)");
                 let mut res = self
                     .handle_spawn_child(&spec, reply.is_some(), state, myself.clone())
                     .await;
@@ -135,7 +137,11 @@ impl Actor for DynamicSupervisor {
                 res
             }
             DynamicSupervisorMsg::TerminateChild { child_id, reply } => {
-                log::trace!("received message: TerminateChild({child_id:?}, ...)");
+                actor_log!(
+                    myself,
+                    trace,
+                    "received message: TerminateChild({child_id:?}, ...)"
+                );
                 self.handle_terminate_child(&child_id, state, myself.clone())
                     .await;
                 if let Some(reply) = reply {
@@ -144,7 +150,7 @@ impl Actor for DynamicSupervisor {
                 Ok(())
             }
             DynamicSupervisorMsg::InspectState(reply) => {
-                log::trace!("received message: InspectState(...)");
+                actor_log!(myself, trace, "received message: InspectState(...)");
                 reply.send(state.clone())?;
                 Ok(())
             }
@@ -164,13 +170,13 @@ impl Actor for DynamicSupervisor {
         evt: SupervisionEvent,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("{evt:?}");
+        actor_log!(myself, trace, "{evt:?}");
         match evt {
             SupervisionEvent::ActorStarted(cell) => {
                 let child_id = cell
                     .get_name()
                     .ok_or(SupervisorError::ChildNameNotSet { pid: cell.get_id() })?;
-                log::info!("Started child: {}", child_id);
+                actor_log!(myself, info, "Started child: {}", child_id);
                 if state.active_children.contains_key(&child_id) {
                     // This is a child we know about, so we track it
                     state
@@ -200,7 +206,7 @@ impl Actor for DynamicSupervisor {
         myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("stopping...");
+        actor_log!(myself, trace, "stopping...");
         #[cfg(test)]
         {
             store_final_state(_myself, _state).await;
@@ -211,7 +217,7 @@ impl Actor for DynamicSupervisor {
             .for_each_concurrent(None, |cell| {
                 let myself = myself.clone();
                 async move {
-                    log::debug!("stopping child {cell:?}");
+                    actor_log!(myself, debug, "stopping child {cell:?}");
 
                     // Must unlink to prevent confusion with them receiving further messages.
                     cell.unlink(myself.get_cell());
@@ -222,14 +228,14 @@ impl Actor for DynamicSupervisor {
                         .await
                         .is_err()
                     {
-                        log::warn!("failed to stop child {cell:?}, killing...");
+                        actor_log!(myself, warn, "failed to stop child {cell:?}, killing...");
                         cell.kill();
                     }
                 }
             })
             .await;
 
-        log::trace!("stopped.");
+        actor_log!(myself, trace, "stopped.");
         Ok(())
     }
 }
@@ -351,7 +357,7 @@ impl DynamicSupervisor {
         myself: ActorRef<DynamicSupervisorMsg>,
     ) {
         if let Some(child) = state.active_children.remove(child_id) {
-            log::trace!("stopping child {:?}", child.cell);
+            actor_log!(myself, trace, "stopping child {:?}", child.cell);
             child.cell.unlink(myself.get_cell());
             if child
                 .cell
@@ -359,7 +365,12 @@ impl DynamicSupervisor {
                 .await
                 .is_err()
             {
-                log::warn!("failed to stop child {:?}, killing...", child.cell);
+                actor_log!(
+                    myself,
+                    warn,
+                    "failed to stop child {:?}, killing...",
+                    child.cell
+                );
                 child.cell.kill();
             }
         }

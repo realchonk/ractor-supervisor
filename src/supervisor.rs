@@ -11,6 +11,8 @@ use ractor::{
 };
 use std::collections::HashMap;
 
+actor_log!(= "Supervisor");
+
 /// The supervision strategy for this supervisor’s children.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SupervisorStrategy {
@@ -209,14 +211,14 @@ impl SupervisorState {
         child_id: &str,
         myself: ActorRef<SupervisorMsg>,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("stopping all children...");
+        actor_log!(myself, trace, "stopping all children...");
         self.track_global_restart(child_id)?;
         // Stop or kill all children.
         iter(&myself.get_children())
             .for_each_concurrent(None, |cell| {
                 let myself = myself.clone();
                 async move {
-                    log::debug!("stopping child {cell:?}");
+                    actor_log!(myself, debug, "stopping child {cell:?}");
 
                     // Must unlink to prevent confusion with them receiving further messages.
                     cell.unlink(myself.get_cell());
@@ -227,7 +229,7 @@ impl SupervisorState {
                         .await
                         .is_err()
                     {
-                        log::warn!("failed to stop child {cell:?}, killing...");
+                        actor_log!(myself, warn, "failed to stop child {cell:?}, killing...");
                         cell.kill();
                     }
                 }
@@ -236,8 +238,8 @@ impl SupervisorState {
 
         // A short delay to allow the old children to fully unregister (avoid name collisions).
         sleep(Duration::from_millis(10)).await;
-        self.spawn_all_children(myself).await?;
-        log::trace!("stopped all children.");
+        self.spawn_all_children(myself.clone()).await?;
+        actor_log!(myself, trace, "stopped all children.");
         Ok(())
     }
 
@@ -312,10 +314,10 @@ impl Actor for Supervisor {
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::trace!("starting...");
+        actor_log!(myself, trace, "starting...");
         Ok(SupervisorState::new(args))
     }
 
@@ -324,7 +326,7 @@ impl Actor for Supervisor {
         myself: ActorRef<Self::Msg>,
         state: &mut SupervisorState,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("started.");
+        actor_log!(myself, trace, "started.");
         // Spawn all children initially
         state.spawn_all_children(myself).await?;
         Ok(())
@@ -340,25 +342,37 @@ impl Actor for Supervisor {
     ) -> Result<(), ActorProcessingErr> {
         let result = match msg {
             SupervisorMsg::OneForOneSpawn { child_id } => {
-                log::trace!("received message: OneForOneSpawn({child_id:?})");
+                actor_log!(
+                    myself,
+                    trace,
+                    "received message: OneForOneSpawn({child_id:?})"
+                );
                 state
                     .perform_one_for_one_spawn(&child_id, myself.clone())
                     .await
             }
             SupervisorMsg::OneForAllSpawn { child_id } => {
-                log::trace!("received message: OneForAllSpawn({child_id:?})");
+                actor_log!(
+                    myself,
+                    trace,
+                    "received message: OneForAllSpawn({child_id:?})"
+                );
                 state
                     .perform_one_for_all_spawn(&child_id, myself.clone())
                     .await
             }
             SupervisorMsg::RestForOneSpawn { child_id } => {
-                log::trace!("received message: RestForOneSpawn({child_id:?})");
+                actor_log!(
+                    myself,
+                    trace,
+                    "received message: RestForOneSpawn({child_id:?})"
+                );
                 state
                     .perform_rest_for_one_spawn(&child_id, myself.clone())
                     .await
             }
             SupervisorMsg::InspectState(rpc_reply_port) => {
-                log::trace!("received message: InspectState(...)");
+                actor_log!(myself, trace, "received message: InspectState(...)");
                 rpc_reply_port.send(state.clone())?;
                 Ok(())
             }
@@ -382,13 +396,13 @@ impl Actor for Supervisor {
         evt: SupervisionEvent,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("{evt:?}");
+        actor_log!(myself, trace, "{evt:?}");
         match evt {
             SupervisionEvent::ActorStarted(cell) => {
                 let child_id = cell
                     .get_name()
                     .ok_or(SupervisorError::ChildNameNotSet { pid: cell.get_id() })?;
-                log::info!("Started child: {}", child_id);
+                actor_log!(myself, info, "Started child: {}", child_id);
                 if state.child_specs.iter().any(|s| s.id == child_id) {
                     // This is a child we know about, so we track it
                     state
@@ -441,13 +455,13 @@ impl Actor for Supervisor {
     /// For meltdown stops, we skip this, but we still store final state for testing.
     async fn post_stop(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::trace!("stopped.");
+        actor_log!(myself, trace, "stopped.");
         #[cfg(test)]
         {
-            store_final_state(_myself, _state).await;
+            store_final_state(myself, _state).await;
         }
         Ok(())
     }

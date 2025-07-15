@@ -223,6 +223,18 @@
 
 const GRACEFUL_STOP_TIME: Duration = Duration::from_millis(500);
 
+macro_rules! actor_log {
+    (= $target:literal) => {
+        const LOG_TARGET: &str = $target;
+    };
+    ($actor:expr, $which:ident, $($args:expr),*) => {
+        log::$which!(
+            target: &format!("{LOG_TARGET}, name={:?}, id={}", $actor.get_name().unwrap_or_default(), $actor.get_id()),
+            $($args),*
+        );
+    };
+}
+
 pub mod core;
 pub mod dynamic;
 pub mod supervisor;
