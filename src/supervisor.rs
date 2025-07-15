@@ -458,11 +458,34 @@ impl Actor for Supervisor {
         myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        actor_log!(myself, trace, "stopped.");
+        actor_log!(myself, trace, "stopping.");
         #[cfg(test)]
         {
-            store_final_state(myself, _state).await;
+            store_final_state(myself.clone(), _state).await;
         }
+        // Stop or kill all children.
+        iter(&myself.get_children())
+            .for_each_concurrent(None, |cell| {
+                let myself = myself.clone();
+                async move {
+                    actor_log!(myself, debug, "stopping child {cell:?}");
+
+                    // Must unlink to prevent confusion with them receiving further messages.
+                    cell.unlink(myself.get_cell());
+
+                    // Allow the children to gracefully exit, murder them if they don't comply.
+                    if cell
+                        .stop_and_wait(None, Some(GRACEFUL_STOP_TIME))
+                        .await
+                        .is_err()
+                    {
+                        actor_log!(myself, warn, "failed to stop child {cell:?}, killing...");
+                        cell.kill();
+                    }
+                }
+            })
+            .await;
+        actor_log!(myself, trace, "stopped.");
         Ok(())
     }
 }
