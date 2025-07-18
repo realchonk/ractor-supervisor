@@ -229,7 +229,12 @@ macro_rules! actor_log {
     };
     ($actor:expr, $which:ident, $($args:expr),*) => {
         log::$which!(
-            target: &format!("{LOG_TARGET}, name={:?}, id={}", $actor.get_name().unwrap_or_default(), $actor.get_id()),
+            target: &format!(
+                "{} ({LOG_TARGET})",
+                $actor
+                    .get_name()
+                    .unwrap_or_else(|| $actor.get_id().to_string())
+            ),
             $($args),*
         );
     };
